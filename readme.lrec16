@@ -1,0 +1,79 @@
+Steps for polarity analysis
+
+es_np_query.py creates the .mtf files for unigrams (attrs) and bigrams.
+Unigrams must not be preceded by an adjective and must appear in the pattern { <N> of }.  To reduce the number, we keep only those
+with freq (in abstracts) >= 10.  We filter out terms containing numerics or punc, and canonicalize the nouns to an uninflected
+or truncated form:
+tfi = es_np_query.run_tfi_conno(db, gram_type)
+
+Bigrams cannot contain or be preceded by adjectives.  cand_bigrams are those with a head from the set of filtered unigrams.
+
+These files are placed in <corpus>/data/eval
+e.g. /home/j/anick/patent-classifier/ontology/roles/data/patents/health_bio_abs/data/eval
+
+[anick@sarpedon eval]$ ls -lrt
+total 8264
+-rw-r--r-- 1 anick grad   95785 Jul  2 08:24 i_bio_abs.attrs     output of es_np_query.make_mtf ?  (7531)
+-rw-r--r-- 1 anick grad   95785 Jul  2 08:35 i_bio_abs.attrs.k2   sorted by second field (freq)  
+-rw-r--r-- 1 anick grad   35616 Jul  2 08:47 i_bio_abs.attrs.k2.f10   filtered to those with freq >= 10 (2821)
+-rw-r--r-- 1 anick grad 7797700 Jul  2 09:11 i_bio_abs.bigrams    output of es_np_query.make_mtf ?
+-rw-r--r-- 1 anick grad  336736 Jul  2 09:45 i_bio_abs.cand_bigrams   further restricted to have heads in .attrs.k2.f10 (16458)
+drwxr-xr-x 2 anick grad   20480 Sep 21 12:59 mallet
+-rw-r--r-- 1 anick grad    5327 Oct  1 18:18 i_bio_abs.cand_bigrams.heads   list of bigram heads (567)
+-rw-r--r-- 1 anick grad   26163 Oct  1 18:20 i_bio_abs.attrs.k2.f10.heads
+
+Line counts
+[anick@sarpedon eval]$ wc -l i_bio_abs.cand_bigrams.heads
+567 i_bio_abs.cand_bigrams.heads
+[anick@sarpedon eval]$ wc -l i_bio_abs.attrs
+7531 i_bio_abs.attrs
+[anick@sarpedon eval]$ wc -l i_bio_abs.attrs.k2.f10
+2821 i_bio_abs.attrs.k2.f10
+[anick@sarpedon eval]$ wc -l i_bio_abs.cand_bigrams
+16458 i_bio_abs.cand_bigrams
+[anick@sarpedon eval]$ wc -l i_bio_abs.bigrams
+386956 i_bio_abs.bigrams
+
+Next step is to get features associated with the np's.  
+
+Goal: For attribute candidate unigrams, extract all relevant features (prev_Npr, prev_V) associated with
+occurrences without an adjectival modifier (no prev_J) and compute their term-feature corpus and doc frequencies.
+Create an mtf file for the candidates.
+
+#tfi = es_np_query.tfi_health_conno() [replaced by run_tfi_conno]
+tfi = es_np_query.run_tfi_conno(db, gram_type)
+
+        # /// mtf output fields
+            # mtf is composed of two lists.  The first is a list of integers with frequency values.
+            # The second is a list of pairs of float conditional probabilities.
+            # output will be a combination of tab separated and blank separated values, 
+            # designed to be easy to parse
+
+            # For the cond prob pairs, we will tab separate the pairs and blank separate the 2 values of the pair
+            # prepare the list of cond prob pairs.  The numbers have to be converted to strings for output.
+
+        l_freq = [self.d_tf_all2count[tfv], self.d_tf_abs2count[tfv], len(self.d_tf_all2doc_ids[tfv]), len(self.d_tf_abs2doc_ids[tfv]), self.d_fv_all2count[fv], self.d_fv_abs2count[fv], self.d_t_all2count[term], self.d_t_abs2count[term], len(self.d_fv_all2doc_ids[fv]), len(self.d_fv_abs2doc_ids[fv]), len(self.d_t_all2doc_ids[term]), len(self.d_t_abs2doc_ids[term]) ]
+        l_cprob = [ [cprob_t_f_all_corpus, cprob_f_t_all_corpus],   [cprob_t_f_abs_corpus, cprob_f_t_abs_corpus],  [cprob_t_f_all_docs, cprob_f_t_all_docs],   [cprob_t_f_abs_docs, cprob_f_t_abs_docs], [npmi_all, npmi_abs] ]
+
+run_pr.run_make_tcs() uses the mtf file, seedset, and thresholds, to create a tcs file in the inst_abs subdir.
+e.g. /home/j/anick/patent-classifier/ontology/roles/data/patents/health_bio_abs/data/tv/inst_abs
+
+# note that freq_threshold refers to the tf_freq of positive or negative features for the term, whichever is higher.                     
+# Setting this too high will eliminate many terms, given the sparsity of data. freq_threshold of 2 means that you                           
+# need at least 2 feature occurrences of the same polarity to include this term in the training set, which may be good to 
+# filter out noise in the training set.
+
+.tcs fields:
+term polarity freq_of_polarity ratio polar_terms (pos and neg)
+recurrence      n       27      1.0     cprev_V=reduce cprev_V=decrease
+
+We can filter the .tcs file on ratio and threshold, e.g.
+cat i_bio_abs.attrs.k2.f10.unigram.mtf.i.0.8.2.tcs | fgt 4 .9 | fgt 3 10 | wc -l
+This would give us smaller but more reliable training terms
+
+In Gitit's mallet directory (/home/j/llc/gititkeh/mallet-2.0.7/bin )
+def create_input_for_mallet_polar(dir_path, file_name_prefix, num_features, lower_lim=0.0, upper_lim=1.0)
+This takes a .feat_info file and creates train_tcs_svm which contains term, label and feature vector
+
+Annotation data from DJA is in /home/j/anick/patent-classifier/ontology/roles/data/patents/health_bio_abs/data/tv/inst_abs
+This directory also contains output from runs made by /home/j/llc/gititkeh/mallet-2.0.7/bin/pa_runs.py

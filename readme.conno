@@ -1,0 +1,979 @@
+Building a connotation lexicon
+6/26/15
+
+Goal: Identify attribute candidates.  We do this by querying the es index for np's which contain
+a prev_Npr feature where the preposition is "of".  This is stored in the spn (separated prev_Npr 
+field in the format [ <noun> <prep> ] )
+In conno.py:
+d_attrs = conno.run_get_cand_attrs("i_health2_2002")
+This outputs a file <index>.attrs in the eval directory:
+/home/j/anick/patent-classifier/ontology/roles/data/patents/ln-us-14-health/data/eval
+We trim the file to counts of 2 or more instances in the corpus.
+Further filter noise and limit terms to those with >= 10 occurrences (with "of")
+cat i_health2_2002.attrs.k2 | python /home/j/anick/patent-classifier/ontology/roles/canon.py 1 | fgt 2 10 > i_health2_2002.attrs.k2.f10
+
+Goal: For attribute candidate unigrams, extract all relevant features (prev_Npr, prev_V) associated with
+occurrences without an adjectival modifier (no prev_J) and compute their term-feature corpus and doc frequencies.
+Create an mtf file for the candidates.
+
+#tfi = es_np_query.tfi_health_conno() [replaced by run_tfi_conno]
+tfi = es_np_query.run_tfi_conno(db, gram_type)
+
+Number of tf occurrences to compute prob(feature)
+>>> sum(tfi.d_tf_all2count.values())
+9303566
+>>> sum(tfi.d_tf_abs2count.values())
+135676
+
+Generate terms that contain features in seed_set i (initial, with 14 seeds)
+run_pr.run_make_tcs(.5, 5, "unigram","i")  
+
+Goal: Extract a list of bigrams which end in unigrams which are candidate attributes
+d_bg = conno.run_bigrams()
+This creates /home/j/anick/patent-classifier/ontology/roles/data/patents/ln-us-14-health/data/eval/i_health2_2002.bigrams
+
+Goal: create mtf file [term feature statistics over instances and docs for abstracts and entire docs]
+Here are the output fields (in .mtf) for the blank separated freq statistics column(3) and conditional probs column(4)
+l_freq = [self.d_tf_all2count[tfv], self.d_tf_abs2count[tfv], len(self.d_tf_all2doc_ids[tfv]), len(self.d_tf_abs2doc_ids[tfv]), self.d_fv_all2count[fv], self.d_fv_abs2count[fv], self.d_t_all2count[term], self.d_t_abs2count[term], len(self.d_fv_all2doc_ids[fv]), len(self.d_fv_abs2doc_ids[fv]), len(self.d_t_all2doc_ids[term]), len(self.d_t_abs2doc_ids[term]) ]
+
+l_cprob = [ [cprob_t_f_all_corpus, cprob_f_t_all_corpus],   [cprob_t_f_abs_corpus, cprob_f_t_abs_corpus],  [cprob_t_f_all_docs, cprob_f_t_all_docs],   [cprob_t_f_abs_docs, cprob_f_t_abs_docs], [npmi_all, npmi_abs] ]
+
+Before the next step, we need to create a .tcs file which contains all phrases
+Filter by corpus freq and by head in attr_cand list.
+# conno.run_filter_by_head()  uses min_freq of 10
+
+Run the term extraction to build bigram mtf file
+
+mtf file is built by running TFInfo in es_np_query.py:
+tfi_bg = es_np_query.tfi_health_conno()  
+# process bigram candidates
+    tfi = TFInfo("i_health2_2002")  
+    tfi.insert_file("/home/j/anick/patent-classifier/ontology/roles/data/patents/ln-us-14-health/data/eval", "i_health2_2002.cand_bigrams") 
+    tfi.output_cond_prob("/home/j/anick/patent-classifier/ontology/roles/data/patents/ln-us-14-health/data/tv", "2002.cand_bigrams")
+This creates: 2002.cand_bigrams.mtf
+
+We can use this to create .tcs file AND tf file needed to run mallet.
+#parameters are index, corpus, frequency_field (3 or 4)                                                                                      
+sh create_bigram_tf_file.sh i_computers_abs computers_abs 3    
+
+///
+For abstracts:
+cat 2002.cand_bigrams.mtf | cut -f1,2,3 | sed -e 's/ /_/' | sed -e 's/ /    /g' | cut -f1,2,4 | sed -e 's/_/ /' > 2002.cand_bigrams.mtf.inst_abs
+
+run_pr.run_make_tcs(1.0, 2, "2002.cand_bigrams.mtf","m")   
+.tcs files are created in inst_all and inst_abs subdirectories of 
+/home/j/anick/patent-classifier/ontology/roles/data/patents/ln-us-14-health/data/tv
+Their name encodes the ratio of p/n (e.g. 0.8) and occurrence min-frequency (e.g. 5) used in computing the tcs file.
+
+Now to run on mallet.  
+I write:
+[2] To test, run this function with 50 mallet infogain features and then the pagerank 25 set, using the following files
+tf_file: /home/j/anick/patent-classifier/ontology/roles/data/patents/ln-us-14-health/data/tv/2002.a.tf.f1.unigram.mtf.doc_all.no0
+tcs_file: /home/j/anick/patent-classifier/ontology/roles/data/patents/ln-us-14-health/data/tv/doc_all/2002.a.tf.f1.unigram.mtf.ssi.1.0.2.tcs
+output_prefix: "NB.IG50.ssi.uni"
+
+Gitit writes:
+You can find the code run_mallet.py at:
+
+/home/j/llc/gititkeh/mallet-2.0.7/bin
+
+(Just run it from this directory).
+
+Notice that:
+- You need to first create the directory you assign at "dir_path"
+- The first part of the prefix string should be the algorithm ("NB" or "ME")
+- Right now the tf_file, tcs_file and 25_pr_file you gave me are written in the code
+- Make sure num_infogain_features = 0 when you input a feature_to_include_file
+
+I ran it on infogain 50 and the pr 25 file and the results are in:
+
+/home/j/llc/gititkeh/malletex/health_data/script_test
+
+Note that this uses the same tf file for training and classification.  That is, the tcs file indicates 
+which terms within the tf file are to be included in training.  Then the classifier is run over all terms
+in the tf file.  If there is feature selection, any terms in .tf which contain no relevant features are excluded
+(i.e. classified as non-polar).
+
+Run NB on:
+tcs: "/home/j/anick/patent-classifier/ontology/roles/data/patents/ln-us-14-health/data/tv/inst_all/2002.cand_bigrams.mtf.m.0.8.2.tcs"
+tf: "/home/j/anick/patent-classifier/ontology/roles/data/patents/ln-us-14-health/data/tv/2002.cand_bigrams.mtf.inst_all"
+
+# 6/30/15 ######################################################### i_bio_abs
+# abstract data from one year of health yields 69 polar bigrams.  So I am going to try processing the i_bio_abs index on pareia.
+First make sure a directory exists to hold the data:
+/home/j/anick/patent-classifier/ontology/roles/data/patents/ln-us-A27-molecular-biology/data/eval
+
+Make sure the index server has the database:
+[anick@pareia eval]$ curl 'localhost:9200/_cat/indices?v'
+health status index        pri rep docs.count docs.deleted store.size pri.store.size 
+yellow open   i_bio_abs      5   1    6645082           21        1gb            1gb 
+
+NOTE from later: After deleting (accidentally) the bio_abs docs and loading the health_abs docs, we got:
+[anick@pareia ~]$ curl 'localhost:9200/_cat/indices?v'
+health status index        pri rep docs.count docs.deleted store.size pri.store.size 
+yellow open   i_bio_abs      5   1    4925274       131751    918.1mb        918.1mb 
+yellow open   i_health_abs   5   1     684289          162    123.6mb        123.6mb 
+)
+
+Update the run_get_cand_attrs function with the correct output dir and run it with the index as parameter
+cd /home/j/anick/patent-classifier/ontology/roles
+python2.7
+import conno
+
+d_attrs =  conno.run_get_cand_attrs("i_bio_abs")  
+# note check whether illegal words like g\/kg are excluded later on
+
+cd /home/j/anick/patent-classifier/ontology/roles/data/patents/ln-us-A27-molecular-biology/data/eval
+cat i_bio_abs.attrs.k2 | python /home/j/anick/patent-classifier/ontology/roles/canon.py 1 | fgt 2 10 > i_bio_abs.attrs.k2.f10
+
+in es_np_query.py, make a wrapper equivalent to tfi_bio_abs_conno, replacing the dirs filenames.  Comment out the bigram section
+and run it for unigrams to create an mtf file 
+output goes to /home/j/anick/patent-classifier/ontology/roles/data/patents/ln-us-A27-molecular-biology/data/tv/i_bio_abs.attrs.k2.f10.unigram.mtf
+#in python
+import (or reload) es_np_query
+tfi_uni = es_np_query.tfi_bio_abs_conno()
+
+Skip making a tcs file for the unigrams for the moment.
+On to the bigrams
+edit conno.py run_bigrams() to have index name and output_path (eval dir with file = <index>.bigrams)
+reload it in python and run it on the machine where the index resides (e.g. pareia)
+d_bg = conno.run_bigrams()   
+This creates:
+/home/j/anick/patent-classifier/ontology/roles/data/patents/ln-us-A27-molecular-biology/data/eval/i_bio_abs.bigrams
+
+Generate terms that contain features in seed_set i (initial, with 14 seeds)
+run_pr.run_make_tcs("bio_abs",.5, 5, "i_bio_abs.attrs.k2.f10.unigram.mtf","i")  
+These unigram terms will be used to filter bigrams.
+
+# conno.run_filter_by_head("bio_abs")  uses min_freq of 10
+This creates
+Run the term extraction to build bigram mtf file
+
+mtf file is built by running TFInfo in es_np_query.py:
+tfi_bg = es_np_query.tfi_health_conno()  
+
+Note that there are many cases of JN np's in this domain, but we are filtering them out.
+
+We can use this to create .tcs file AND tf file needed to run mallet.
+To create a tf file (containing term feature and freq):
+
+cd /home/j/anick/patent-classifier/ontology/roles/data/patents/ln-us-A27-molecular-biology/data/tv
+cat i_bio_abs.cand_bigrams.bigram.mtf | cut -f1,2,3 | sed -e 's/ /_/' | sed -e 's/ /   /g' | cut -f1,2,3 | sed -e 's/_/ /' > i_bio_abs.cand_bigrams.bigram.mtf.inst_all
+
+Note we had to stick a _ in the space in the bigram so that we could replace the blanks in the freq section with tabs so that we can
+extract the frequency field needed.  In this case it is the first freq (inst_all).  For abstracts, we'll need the next frequency (obtainable
+by (second) cut -f1,2,4).  Then we remove the _ in the bigram phrase. SEE NOTE BELOW.
+
+For abstracts, there is not a need to run this line, since only abstracts are indexed in this db.  field 3 and 4 will be identical.
+cat 2002.cand_bigrams.mtf | cut -f1,2,3 | sed -e 's/ /_/' | sed -e 's/ /    /g' | cut -f1,2,4 | sed -e 's/_/ /' > 2002.cand_bigrams.mtf.inst_abs
+NOTE: We use sed to replace the _ inserted into the term with a space at the end.  This only works for bigrams, since the first space is
+what needs to be replaced.  It will not work for unigrams or n-grams with more than one space!!!
+
+cat i_bio_abs.attrs.k2.f10.unigram.mtf | cut -f1,2,3 | sed -e 's/ /_/' | sed -e 's/ /    /g' | cut -f1,2,4 > i_bio_abs.attrs.k2.f10.unigram.mtf.inst_abs
+
+run_pr.run_make_tcs("bio_abs", .8, 2, "i_bio_abs.cand_bigrams.bigram.mtf","i")   
+
+Results are in:
+/home/j/anick/patent-classifier/ontology/roles/data/patents/ln-us-A27-molecular-biology/data/tv/inst_all
+i_bio_abs.cand_bigrams.bigram.mtf.i.0.8.2.tcs 
+i_bio_abs.cand_bigrams.bigram.mtf.i.0.8.2.tcs 
+
+Before running mallet, create a file in pa_runs.py with all the right directory/file names.
+Make sure that a mallet subdir exists under the eval dir:
+cd /home/j/anick/patent-classifier/ontology/roles/data/patents/ln-us-A27-molecular-biology/data/eval
+mkdir mallet
+
+Go to Gitit's directory to run mallet.
+
+cd /home/j/llc/gititkeh/mallet-2.0.7/bin
+python2.7
+import pa_runs
+
+###### populating health abstracts
+7/1/15 Marc has populated phr_feats for health 1997 - 2007
+I will load the abstracts into the current i_bio_abs index using the domain = health
+
+Run this on pareia
+>>> es_np_index.np_populate("i_bio_abs", "health_abs", "ln-us-14-health", 1997, 2007, 5000, True, True, 0, True)
+started at 11:30am.
+[tv_filepath]file: /home/j/anick/patent-classifier/ontology/roles/data/patents/ln-us-14-health/data/tv/
+Wed Jul  1 14:10:39 2015        0       [es_np_index.py]Completed make_bulk_lists for years: 1997 2007. Number of lines: 1164
+
+[gen_bulk_lists]1164 lines from 37 files written to index i_bio_abs
+[es_np_index.py] Bulk loaded sublist 826
+[es_np_index.py] bulk loading completed
+[es_np_index.py] index refreshed
+[se_np_index.py]np_populate completed at Wed Jul  1 14:10:39 2015
+ (elapsed time in hr:min:sec: 2:41:19.751052)
+
+Since the data combines docs from multiple corpora, we need to create a new corpus for it in our
+corpus hierarchy.  We'll call it health_bio_abs and create needed subdirectories now as well.
+[anick@sarpedon mallet]$ mkdir /home/j/anick/patent-classifier/ontology/roles/data/patents/health_bio_abs
+[anick@sarpedon mallet]$ cd /home/j/anick/patent-classifier/ontology/roles/data/patents/health_bio_abs
+[anick@sarpedon health_bio_abs]$ mkdir data
+[anick@sarpedon health_bio_abs]$ cd data
+[anick@sarpedon data]$ mkdir eval
+[anick@sarpedon data]$ mkdir tv		
+cd tv
+mkdir inst_all
+mkdir inst_abs
+mkdir doc_all
+mkdir doc_abs
+cd ..
+[anick@sarpedon data]$ cd eval
+[anick@sarpedon eval]$ mkdir mallet
+
+Total number of docs:
+d1 = es_np_query.q_doc_ids("i_bio_abs", "doc", [ ["year", 1997], ["domain", "health_abs"] ], ["doc_id", "domain"], debug_p=True) 
+>>> len(d1)
+20097
+
+We don't want to create a new index, so set new_index paramter to False!!!
+>>> es_np_index.np_populate("i_bio_abs", "bio_abs", "ln-us-A27-molecular-biology", 1997, 2007, 5000, True, False, 0, True)
+
+Here is the size after creating the bio_abs domain
+[anick@pareia eval]$ curl 'localhost:9200/_cat/indices?v'
+health status index        pri rep docs.count docs.deleted store.size pri.store.size 
+yellow open   i_bio_abs      5   1    6645082           21        1gb            1gb 
+
+After deleting (accidentally) the bio_abs docs and loading the health_abs docs, we got:
+health status index        pri rep docs.count docs.deleted store.size pri.store.size 
+yellow open   i_bio_abs      5   1    4925274       131751    918.1mb        918.1mb 
+
+So the health abstracts are ~.8 the size of the bio abstracts.  Together they should be around 2Gb and
+~45k docs (abstracts)
+
+Why are so many docs being deleted?
+[anick@pareia ~]$ curl 'localhost:9200/_cat/indices?v'
+health status index        pri rep docs.count docs.deleted store.size pri.store.size 
+yellow open   i_bio_abs      5   1    5175383       763358        1gb            1gb 
+
+Some time later, it lists fewer docs deleted, very strange!
+[anick@pareia ~]$ curl 'localhost:9200/_cat/indices?v'
+health status index        pri rep docs.count docs.deleted store.size pri.store.size 
+yellow open   i_bio_abs      5   1    5877983       735865      1.3gb          1.3gb 
+
+Completed:
+[es_np_index.py] Bulk loaded sublist 1135
+Wed Jul  1 22:20:00 2015        0       [es_np_index.py]Completed make_bulk_lists for years: 1997 2007. Number of lines: 151569
+
+[gen_bulk_lists]151569 lines from 5935 files written to index i_bio_abs
+[es_np_index.py] Bulk loaded sublist 1136
+[es_np_index.py] bulk loading completed
+[es_np_index.py] index refreshed
+[se_np_index.py]np_populate completed at Wed Jul  1 22:20:01 2015
+ (elapsed time in hr:min:sec: 5:29:07.547791)
+
+Number of docs in i_health_bio_abs:
+>>> d1 = es_np_query.q_doc_ids("i_bio_abs", "doc", [ ], ["doc_id", "domain"], size=1000000)    
+>>> len(d1)
+327432
+
+7/2/15
+
+First make sure directories exists to hold the data:
+/home/j/anick/patent-classifier/ontology/roles/data/patents/health_bio_abs/data/eval
+/home/j/anick/patent-classifier/ontology/roles/data/patents/health_bio_abs/data/tv
+
+Make sure the index server (on pareia) has the database:
+[anick@pareia ~]$ curl 'localhost:9200/_cat/indices?v'
+health status index        pri rep docs.count docs.deleted store.size pri.store.size 
+yellow open   i_bio_abs      5   1    9315349      1074660      1.9gb          1.9gb 
+
+Update the conno.run_get_cand_attrs function with the correct output dir and run it with the index as parameter
+cd /home/j/anick/patent-classifier/ontology/roles
+python2.7
+import conno
+d_attrs =  conno.run_get_cand_attrs("i_bio_abs")
+
+cd /home/j/anick/patent-classifier/ontology/roles/data/patents/health_bio_abs/data/eval
+# sort by frequency
+cat i_bio_abs.attrs | sortnr -k2 > i_bio_abs.attrs.k2
+# remove terms with freq < 10
+cat i_bio_abs.attrs.k2 | python /home/j/anick/patent-classifier/ontology/roles/canon.py 1 | fgt 2 10 > i_bio_abs.attrs.k2.f10
+
+#in es_np_query.py, edit run_tfi_conno to include an elif condition for health_bio_abs db
+# reload es_np_query and on pareia, call run_tfi_conno with db and unigram as parameters
+tfi_uni = es_np_query.run_tfi_conno("health_bio_abs", "unigram")
+This is slow as it queries index for all bare nps in the attr list.
+output goes to /home/j/anick/patent-classifier/ontology/roles/data/patents/health_bio_abs/data/tv/i_bio_abs.attrs.k2.f10.unigram.mtf
+  
+# Skip making a tcs file for the unigrams for the moment.
+# On to the bigrams
+# edit 2 lines (in file conno.py) run_bigrams() to have index name and output_path (/data/eval dir with filename = <index>.bigrams)
+
+# reload it in python and run it on the machine where the index resides (e.g. pareia)
+reload(conno)
+d_bg = conno.run_bigrams()   
+# This creates:
+# /home/j/anick/patent-classifier/ontology/roles/data/patents/health_bio_abs/data/eval/i_bio_abs.bigrams
+These are not restricted to NN.  They can contain adjectival modifiers. ///
+
+# Generate terms that contain features in seed_set i (initial, with 14 seeds)
+# Edit run_pr.py run_make_tcs  to include an elif condition for current db, setting the home_dir directory
+#   Make sure to change the corpus within the home_dir!
+# 1st parameter of run_make_tcs call should be corpus name, last parameter the unigram mtf filename
+
+run_pr.run_make_tcs("health_bio_abs",.5, 5, "i_bio_abs.attrs.k2.f10.unigram.mtf","i")  
+# These unigram terms will be used to filter bigrams.
+# edit conno.py run_filter_by_head to add a section for the current db
+#     elif db == "health_bio_abs": ...
+conno.run_filter_by_head("health_bio_abs")  uses min_freq of 10
+# This creates /home/j/anick/patent-classifier/ontology/roles/data/patents/health_bio_abs/data/tv/inst_all/i_bio_abs.attrs.k2.f10.unigram.mtf.i.0.5.5.tcs
+# Run the term extraction to build bigram mtf file
+
+# mtf file is built by running TFInfo in es_np_query.py:
+# Run this on pareia
+tfi_bg = es_np_query.run_tfi_conno("health_bio_abs", "bigram")
+
+# This runs pretty quickly
+# Note that there are many cases of JN np's in this domain, but we are filtering them out.
+
+# We can use this to create .tcs file AND tf file needed to run mallet.
+# To create a tf file (containing term feature and freq):
+
+# NOTE: make sure to adjust the tab (ctrl-v tab) if you cut and paste this into command line.
+
+cd /home/j/anick/patent-classifier/ontology/roles/data/patents/health_bio_abs/data/tv
+cat i_bio_abs.cand_bigrams.bigram.mtf | cut -f1,2,3 | sed -e 's/ /_/' | sed -e 's/ /   /g' | cut -f1,2,3 | sed -e 's/_/ /' > i_bio_abs.cand_bigrams.bigram.mtf.inst_all
+
+# create a tf file for unigrams as well, selecting for the appropriate frequency field (in this case inst_all)
+# Note that we don't do any replacing of whitespace with "_" here.  Not necessary for unigrams.
+cat i_bio_abs.attrs.k2.f10.unigram.mtf | cut -f1,2,3 | sed -e 's/ /   /g' | cut -f1,2,3  > i_bio_abs.attrs.k2.f10.unigram.mtf.inst_all
+
+Note we had to stick a _ in the space in the bigram so that we could replace the blanks in the freq section with tabs so that we can
+extract the frequency field needed.  In this case it is the first freq (inst_all).  For abstracts, we'll need the next frequency (obtainable
+by (second) cut -f1,2,4).  Then we remove the _ in the bigram phrase. SEE NOTE BELOW.
+
+For abstracts, there is not a need to run the next line, since only abstracts are indexed in this particular db anyway.  field 3 and 4 will be identical.
+cat 2002.cand_bigrams.mtf | cut -f1,2,3 | sed -e 's/ /_/' | sed -e 's/ /    /g' | cut -f1,2,4 | sed -e 's/_/ /' > 2002.cand_bigrams.mtf.inst_abs
+NOTE: We use sed to replace the _ inserted into the term with a space at the end.  This only works for bigrams, since the first space is
+what needs to be replaced.  It will not work for unigrams or n-grams with more than one space!!!
+
+cat i_bio_abs.attrs.k2.f10.unigram.mtf | cut -f1,2,3 | sed -e 's/ /_/' | sed -e 's/ /    /g' | cut -f1,2,4 > i_bio_abs.attrs.k2.f10.unigram.mtf.inst_abs
+
+run_pr.run_make_tcs("health_bio_abs", .8, 2, "i_bio_abs.cand_bigrams.bigram.mtf","i")   
+run_pr.run_make_tcs("health_bio_abs", .8, 2, "i_bio_abs.attrs.k2.f10.unigram.mtf","i")   
+
+Results are in:
+/home/j/anick/patent-classifier/ontology/roles/data/patents/health_bio_abs/data/tv/inst_all
+-rw-r--r-- 1 anick grad 64711 Jul  2 09:45 i_bio_abs.attrs.k2.f10.unigram.mtf.i.0.5.5.tcs
+-rw-r--r-- 1 anick grad 29341 Jul  2 09:57 i_bio_abs.cand_bigrams.bigram.mtf.i.0.8.2.tcs
+-rw-r--r-- 1 anick grad 52085 Jul  2 09:59 i_bio_abs.attrs.k2.f10.unigram.mtf.i.0.8.2.tcs
+
+///
+
+
+Before running mallet, create a file in pa_runs.py with all the right directory/file names.
+Make sure that a mallet subdir exists under the eval dir:
+if not...
+cd /home/j/anick/patent-classifier/ontology/roles/data/patents/health_bio_abs/data/eval
+mkdir mallet
+
+Go to Gitit's directory to run mallet.
+The info_feats file needs to be created once, so only include the parameter=True on one uni/bigram call each
+
+cd /home/j/llc/gititkeh/mallet-2.0.7/bin
+python2.7
+import pa_runs
+pa_runs.run_health_bio_abs_inst_all_uni("NB", feat_info=True)  
+pa_runs.run_health_bio_abs_inst_all_bi("NB", feat_info=True)  
+
+Comments on output, first looking at infogain features. 
+in uni, we get "permit" as the second feature, which is bad.
+in bi, we don't.  This suggests the need to do feature selection over less ambigious term set.
+It also means the unigram term training set may have inappropriate items.
+
+
+New features to get from the chunker.
+If a verb is an infinitive, get the verb or noun governing it (tendency to increase, fails to increase)
+
+######################### i_health
+es_np_index.np_populate("i_health", "health", "ln-us-14-health", 1997, 2007, 5000, True, True, 0, False)  
+
+lemmatizing using wordnet, info here:
+http://stackoverflow.com/questions/18430183/import-error-for-compat-in-nltk-and-using-browserver-for-browsing-the-nltk-wordn
+
+Getting an incompat error when trying to import es_np_index on pareia.
+    from nltk import compat
+ImportError: cannot import name compat
+
+################# trying other seedsets
+
+add seedsets in code directory (fr_code) to see if running on different dimensions separately helps
+seed.pn.en.increase.dat
+seed.pn.en.promote.dat
+
+assuming mtf file already exists, make the tcs file (mapping terms to classes based on the seed set)
+add the seedsets into run_pr.run_make_tcs()
+>>> reload(run_pr)
+<module 'run_pr' from 'run_pr.py'>
+>>> run_pr.run_make_tcs("health_bio_abs",.8, 2, "i_bio_abs.attrs.k2.f10.unigram.mtf","u")       
+>>> run_pr.run_make_tcs("health_bio_abs",.8, 2, "i_bio_abs.attrs.k2.f10.unigram.mtf","p")      
+
+Then run mallet, adding wrapper functions in /home/j/llc/gititkeh/mallet-2.0.7/bin/pa_runs.py
+>>> pa_runs.run_health_bio_abs_inst_all_bi_increase("NB") 
+You can also change the number of features using 2nd parameter ("NB", 25)
+Default is 50 (including both p and n)
+
+Then run the evaluation against the gold data
+# polarity.run_polareval("health_bio_abs", "NB.IG50.health_bio_abs.inst_all.ssp.0.8.2.uni.results", "NB.IG50.health_bio_abs.inst_all.ssp.0.8.2.bi.results")
+# polarity.run_polareval("health_bio_abs", "NB.IG50.health_bio_abs.inst_all.ssu.0.8.2.uni.results", "NB.IG50.health_bio_abs.inst_all.ssu.0.8.2.bi.results") 
+
+Data for health-bio domain is in /home/j/anick/patent-classifier/ontology/roles/data/patents/health_bio_abs/data/eval/mallet
+Annotated data is in /home/j/anick/patent-classifier/ontology/roles/data/patents/ln-us-14-health/data/eval
+
+Currently loading full health patents into i_health index.
+Renamed time.py as es_time.py since time.py interferes with an existing python package name.
+
+i_health completed, after reducing bulk size to 4000.
+Wed Jul  8 13:38:37 2015        0       [es_np_index.py]Completed make_bulk_lists for years: 2003 2007. Number of lines: 110531
+
+[gen_bulk_lists]110531 lines from 37 files written to index i_health
+[es_np_index.py] Bulk loaded sublist 17165
+[es_np_index.py] bulk loading completed
+[es_np_index.py] index refreshed
+[se_np_index.py]np_populate completed at Wed Jul  8 13:38:38 2015
+ (elapsed time in hr:min:sec: 3:13:26.606027)
+
+7/8/15 building full computers index
+es_np_index.np_populate("i_computers", "computers", "ln-us-A21-computers", 1997, 2007, 4000, True, True, 0, False) 
+
+setup_corpus(home_dir, corpus_name)
+
+Create the directory structure needed for extracting info from the computers index
+sh setup_corpus.sh /home/j/anick/patent-classifier/ontology/roles/data/patents computers   
+sh setup_corpus.sh /home/j/anick/patent-classifier/ontology/roles/data/patents health
+
+I manually edited the infogain features of health_bio_abs to include just the pos features.  
+/home/j/anick/patent-classifier/ontology/roles/data/patents/health_bio_abs/data/eval/mallet/NB.IG50.health_bio_abs.inst_all.ssp.0.8.2.bi.infogain_features.pga.pos
+
+Try making a boolean or query of these to find potential terms of temporal interest.
+   
+Get all np counts for a year of an index:
+d_hnp = conno.run_get_np_counts_health(2007) 
+
+I modified es_np_query.qmamf(l_query_must=[["cphr", "blood"] ],l_fields=["cprev_V", "cphr", "cprev_Npr"], l_or=[["cprev_V", ["derive from"]], ["cprev_Npr", ["disorder of"]]], query_type="search", index_name="i_bio_abs")  
+
+to take l_or, a list of attrs and values to be ORed together.  This allows us to find all np's that contain at least one of a set of features.
+
+
+cs finished indexing!
+[es_np_index.py] Bulk loaded sublist 150850
+Thu Jul  9 19:24:47 2015        0       [es_np_index.py]Completed make_bulk_lists for years: 1997 2007. Number of lines: 19915431
+
+[gen_bulk_lists]19915431 lines from 7339 files written to index i_computers
+[es_np_index.py] Bulk loaded sublist 150851
+[es_np_index.py] bulk loading completed
+[es_np_index.py] index refreshed
+[se_np_index.py]np_populate completed at Thu Jul  9 19:24:47 2015
+ (elapsed time in hr:min:sec: 1 day, 3:06:03.950250)
+
+# Get counts of np's for a given year
+>>> reload(conno)
+<module 'conno' from 'conno.pyc'>
+>>> d_hnp = conno.run_get_np_counts_health(2007) >>> 
+>>> d_hnp_97 = conno.run_get_np_counts_health(1997) 
+
+Output can be for all np's or just those with certain "positive" features
+
+[anick@pareia eval]$ cat health.np_counts.pos2007 | sortnr -k2 | more^C
+[anick@pareia eval]$ pwd
+/home/j/anick/patent-classifier/ontology/roles/data/patents/health/data/eval
+
+8/11/15 Gitit writes
+I just changed the run_mallet to have an option of polar vs. non-polar training.
+
+The main function, run_classify, gets the same arguments, but now feat_info can have non-Boolean value, like "5-0.0-1.0", where 5 is the minimal number of features for terms to be included in the training, 0.0 is a lower threshold for the value of polar_ratio (in feat_info file) for terms to be labelled as 'npo' (non-polar), and 1.0 is the upper threshold for terms to be labelled as 'po'.
+
+So for example, in the lower threshold case, 0.0 requires all npo to have exactly 0.0 polar ratio (no polar features at all), and 0.2 requires at most 0.2 ratio.
+
+In run_classify, Boolean values of feat_info will be applied during a regular training, and non-Boolean values only for the polar vs. non-polar case.
+
+The function can run in this mode also with an external feature file (like we had from pagerank).
+All related files have an additional prefix of "5-0.0-1.0".
+(When running in this mode, if we need to generate the features from mallet's infogain, a generic vectors file is generated, as well as features files. In addition, the classification input is the same for the n-p and npo-po case, so only one is generated. All the above files have no "5-0.0-1.0" prefix since they are generic).
+
+9/13/15 Reviewing process
+
+#Indexes are on pareia
+#From mac, use sshpa to get there.
+
+#List indexes
+[anick@pareia ~]$ curl 'localhost:9200/_cat/indices?v'
+health status index        pri rep docs.count docs.deleted store.size pri.store.size 
+yellow open   i_bio_abs      5   1    9663548      1078241      1.7gb          1.7gb 
+yellow open   i_health       5   1  431508234      6421985     61.6gb         61.6gb 
+yellow open   i_computers    5   1  712280547        28977    102.2gb        102.2gb 
+yellow open   i_health_abs   5   1     684289          162    123.6mb        123.6mb 
+
+# data derived from indexes is stored in /home/j/anick/patent-classifier/ontology/roles/data/patents/
+drwxr-xr-x  3 anick grad 4096 Jul  1 14:55 health_bio_abs
+drwxr-xr-x  3 anick grad 4096 Jul  8 18:44 computers
+drwxr-xr-x  3 anick grad 4096 Jul  8 21:04 health
+
+health_bio_abs attrs and bigrams created on July 2, 2015:
+/home/j/anick/patent-classifier/ontology/roles/data/patents/health_bio_abs/data/eval
+This contains 327,432 patents from both health and molecular biology domains from 1997 to 2007
+Number of docs in i_health_bio_abs:
+>>> d1 = es_np_query.q_doc_ids("i_bio_abs", "doc", [ ], ["doc_id", "domain"], size=1000000)
+>>> len(d1)
+327432
+
+computers and health are full indexes but only analyzed for temporal data.  There are subdirs for inst_abs and inst_all but unpopulated.
+
+We deal with unigrams and bigrams separately.
+
+* make sure no eval data is in the training data
+
+# extract normalized unigram nouns occurring with "of".  Call these unigram relational nouns, even though some nouns might
+not be relational  URN.  
+d_attrs =  conno.run_get_cand_attrs("i_bio_abs")
+i_bio_abs.attrs 7531
+
+Sorted and filtered by freq >= 10:
+i_bio_abs.attrs.k2.f10 2821
+
+We use these unigrams as heads to filter the set of bigrams extracted from the index.
+conno.run_filter_by_head(db) produces /data/eval/<index_name>.cand_bigrams 
+Then we can create a .mtf file for the bigrams as well, using data/tv/inst_all/2002.attrs.k2.f10.unigram.mtf.i.0.5.5.tcs"
+
+.mtf file is created by es_np_query.TFInfo.output_cond_prob
+
+
+in /home/j/anick/patent-classifier/ontology/roles/data/patents/health_bio_abs/data/tv
+.mtf file contains frequency stats for term/feature combination
+e.g. blood volume    cprev_V=activate        1 1 1 1 331 331 117 117 289 289 80 80   0.00302114803616 0.00854700854628       0.00302114803616 0.00854700854628    0.00346020761234 0.0124999999984        0.00346020761234 0.0124999999984        0.137977115392 0.137977115392
+
+In conno.py, should we filter by unigram head before filtering by seed specific tcs file in run_filter_by_head_bio_abs?
+
+NOTE: evaluation set generation is described in readme.polarity.
+
+
+
+####
+How do we evaluate features produced by infogain?
+cd /home/j/anick/patent-classifier/ontology/roles/data/patents/health_bio_abs/data/eval/mallet
+more NB.IG50.health_bio_abs.inst_all.ssu.0.8.2.uni.infogain_features
+
+cprev_Npr=protection_against
+cprev_V=color
+cprev_V=deposit
+cprev_Npr=enhancement_of
+cprev_V=withdraw
+cprev_Npr=influence_of
+
+why color and deposit?
+
+
+NB.IG50.health_bio_abs.inst_all.ssi.0.8.2.uni.feat_info gives [term freq polar_feat_freq polar_ratio polar_feat:count nonpolar_feat:count]
+
+[anick@sarpedon mallet]$ ls -lrt *ssi*uni*
+NB.IG50.health_bio_abs.inst_all.ssi.0.8.2.uni.train_input_svm  mallet formatted training file [cat vector]
+NB.IG50.health_bio_abs.inst_all.ssi.0.8.2.uni.train_tcs_svm   mallet training + term [term cat vector]
+NB.IG50.health_bio_abs.inst_all.ssi.0.8.2.uni.train.vectors   unreadable mallet format
+NB.IG50.health_bio_abs.inst_all.ssi.0.8.2.uni.pruned.train.vectors  pruned by infogain?
+NB.IG50.health_bio_abs.inst_all.ssi.0.8.2.uni.classifier   mallet classifier (NB)
+NB.IG50.health_bio_abs.inst_all.ssi.0.8.2.uni.infogain_features   features sorted by infogain (up to max, such as 50)
+NB.IG50.health_bio_abs.inst_all.ssi.0.8.2.uni.class_input_svm  classification input [term vector] using only infogain features
+NB.IG50.health_bio_abs.inst_all.ssi.0.8.2.uni.feat_info  feature info for classification data: [term freq polar_feat_freq polar_ratio polar_feat:count nonpolar_feat:count]
+NB.IG50.health_bio_abs.inst_all.ssi.0.8.2.uni.results  output: [term n score p score]
+NB.IG50.health_bio_abs.inst_all.ssi.0.8.2.uni.results.comp  comparison to gold label [term gold/system ?c system_label_score]
+
+---
+10/3/15 extracting unigram info from index
+index_name: i_computers
+corpus_name: ln-us-A21-computers
+
+Set up eval directory
+cd /home/j/anick/patent-classifier/ontology/roles/data/patents/computers/data
+
+Follow the instructions for i_bio_abs index
+
+First time I ran d_attrs =  conno.run_get_cand_attrs("i_computers", "computers") 
+I got a timeout:
+elasticsearch.exceptions.ConnectionTimeout: ConnectionTimeout caused by - ReadTimeoutError(HTTPConnectionPool(host='localhost', port=9200): Read timed out. (read timeout=10))
+
+I tried running it again ~ 4:10.
+>>> d_attrs =  conno.run_get_cand_attrs("i_computers", "computers") 
+l_must: [['spn', 'of']]
+
+After 25 mins, completed and created:
+/home/j/anick/patent-classifier/ontology/roles/data/patents/computers/data/eval/i_computers.attrs
+
+cd /home/j/anick/patent-classifier/ontology/roles/data/patents/computers/data/eval/
+Do filtering
+cat i_computers.attrs | python /home/j/anick/patent-classifier/ontology/roles/canon.py 1 | fgt 2 10 > i_computers.attrs.k2.f10
+
+This yields 19172 terms.  They include - and digits but start with an alpha character.
+
+edit run_tfi_conno in es_np_query.py to create a conditional section for the db (1st parameter)
+When editing, make sure you name the index components correctly (e.g. i_computers), which can be different from
+the corpus name (eg. computers)
+
+    elif db == "computers":
+        eval_dir = "/home/j/anick/patent-classifier/ontology/roles/data/patents/computers/data/eval"
+        tv_dir = "/home/j/anick/patent-classifier/ontology/roles/data/patents/computers/data/tv"
+        unigram_source_file = "i_computers.attrs.k2.f10"
+        bigram_source_file = "i_computers.cand_bigrams"
+        index = "i_computers"
+
+Run it with db, unigram as parameters:
+import es_np_query
+tfi_uni = es_np_query.run_tfi_conno("computers", "unigram") 
+
+Started running at 5:00.
+Still running at 10:00
+Still running at 10am
+
+--------------computer_abs
+So I need to create a smaller index of just the computer abstracts...
+>>>import es_np_index
+Assuming we have already populated the data files for all years for the subdirectory:
+/home/j/anick/patent-classifier/ontology/roles/data/patents/ln-us-A21-computers/data/term_features
+
+We create a new elasticsearch index on pareia and populate it 
+>>> es_np_index.np_populate("i_computers_abs", "computers_abs", "ln-us-A21-computers", 1997, 2007, 5000, True, True, 0, True) 
+Remember to set the abstract_only parameter to True!
+#def np_populate(index_name, domain, corpus, start_year, end_year, lines_per_bulk_load=5000, section_filter_p=True, new_index_p=True, max_lines=0, abstract_only_p=False):
+
+Now create the directory structure needed to handle polarity files
+sh create_corpus_subtree.sh computers_abs 
+
+
+10/3/15 extracting unigram info from index
+index_name: i_computers_abs
+corpus_name: computers_abs
+
+Set up eval directory
+cd /home/j/anick/patent-classifier/ontology/roles/data/patents/computers_abs/data
+
+Follow the instructions for i_bio_abs index
+
+import conno
+d_attrs =  conno.run_get_cand_attrs("i_computers_abs", "computers_abs") 
+
+Completed in around a minute.
+
+It created 
+/home/j/anick/patent-classifier/ontology/roles/data/patents/computers_abs/data/eval/i_computers_abs.attrs
+ wc -l
+6414
+
+cd /home/j/anick/patent-classifier/ontology/roles/data/patents/computers_abs/data/eval/
+Do filtering and canonicalization:
+cat i_computers_abs.attrs | python2.7 /home/j/anick/patent-classifier/ontology/roles/canon.py 1 | fgt 2 10 > i_computers_abs.attrs.k2.f10
+
+[anick@pareia eval]$ wc -l i_computers_abs.attrs.k2.f10
+2645 i_computers_abs.attrs.k2.f10
+
+edit run_tfi_conno in es_np_query.py to create a conditional section for the db (1st parameter)
+When editing, make sure you name the index components correctly (e.g. i_computers), which can be different from
+the corpus name (eg. computers)
+
+    elif db == "computers_abs":
+        eval_dir = "/home/j/anick/patent-classifier/ontology/roles/data/patents/computers_abs/data/eval"
+        tv_dir = "/home/j/anick/patent-classifier/ontology/roles/data/patents/computers_abs/data/tv"
+        unigram_source_file = "i_computers_abs.attrs.k2.f10"
+        bigram_source_file = "i_computers_abs.cand_bigrams"
+        index = "i_computers_abs"
+
+Run it with db, unigram as parameters:
+import es_np_query
+tfi_uni = es_np_query.run_tfi_conno("computers_abs", "unigram") 
+
+Completed in ~ 10 minutes
+
+[insert_file]Output written to /home/j/anick/patent-classifier/ontology/roles/data/patents/computers_abs/data/tv/i_computers_abs.attrs.k2.f10.unigram.mtf
+
+Skip making a tcs file for the unigrams for the moment.
+On to the bigrams
+edit conno.py run_bigrams() to have index name and output_path (eval dir with file = <index>.bigrams)
+reload it in python and run it on the machine where the index resides (e.g. pareia)
+> reload(conno)
+> d_bg = conno.run_bigrams()   
+This creates:
+/home/j/anick/patent-classifier/ontology/roles/data/patents/ln-us-A27-molecular-biology/data/eval/i_bio_abs.bigrams
+
+///
+Generate terms that contain features in seed_set i (initial, with 14 seeds)
+These are used to generate training data (.tcs) for a seed set.
+The thresholds can be changed by further filtering the .tcs file, so we set the ratio at .5 to be lenient here.
+> import run_pr
+> run_pr.run_make_tcs("computers_abs",.5, 5, "i_computers_abs.attrs.k2.f10.unigram.mtf","i")  
+These unigram terms will also be used to filter bigrams, so we may want to run without any seedset limitation,
+Add lines for the db to conno.run_filter_by_head 
+(for head_path, use the i_computers_abs.attrs.k2.f10 file rather than the tcs file created above)
+Make sure to modify the corpus within the directory path as well as the file names!
+
+# conno.run_filter_by_head("computers_abs")  uses min_freq of 10
+This creates /home/j/anick/patent-classifier/ontology/roles/data/patents/computers_abs/data/eval/i_computers_abs.cand_bigrams
+
+Number of unique head terms in bigrams:
+[anick@sarpedon eval]$ cat i_computers_abs.cand_bigrams | cut -f1 | cut -d" " -f2 | sort | uniq | wc -l
+1716
+
+Run the term extraction to build bigram mtf file
+
+mtf bigrams file is built by running run_tf_conno in es_np_query.py:
+> tfi_bg = es_np_query.run_tfi_conno("computers_abs", "bigram")  
+
+Note that there are many cases of JN np's in this domain, but we are filtering them out.
+
+We can use this to create .tcs file AND tf file needed to run mallet.
+To create a tf file (containing term feature and freq):
+
+# sh mtf2tf.sh i_computers_abs computers_abs all unigram                                                                                    # sh mtf2tf.sh i_computers_abs computers_abs all bigram      
+
+These create
+/home/j/anick/patent-classifier/ontology/roles/data/patents/computers_abs/data/tv
+i_computers_abs.attrs.k2.f10.unigram.mtf.inst_all
+i_computers_abs.cand_bigrams.bigram.mtf.inst_all
+
+These files are the tf files needed by the mallet code to create a svm vector representation
+
+Now create the tcs files, used for training (term label)
+run_pr.run_make_tcs("computers_abs", .8, 2, "i_computers_abs.cand_bigrams.bigram.mtf","i")   
+
+Results are in:
+/home/j/anick/patent-classifier/ontology/roles/data/patents/computers_abs/data/tv/inst_all
+i_computers_abs.cand_bigrams.bigram.mtf.i.0.8.2.tcs 
+
+Before running mallet, create a file in pa_runs.py with all the right directory/file names.
+Make sure that a mallet subdir exists under the eval dir:
+cd /home/j/anick/patent-classifier/ontology/roles/data/patents/computers_abs/data/eval
+mkdir mallet
+
+Go to Gitit's directory to run mallet.
+
+Gitit writes:
+The functions can be found in:
+
+/home/j/llc/gititkeh/mallet-2.0.7/bin/vectors_helpers.py
+
+The second function (tcs2infogain_scores) needs the output of the first one (tf2svm_format), and it is done by giving it the same dir_path and file_name_prefix, so it will know where to look for it.
+
+The CS annotation files are in:  /home/j/llc/gititkeh/malletex/cs_annotations
+
+I tried to simplify the run_mallet code.
+Now there are 4 functions:
+
+tf2svm_format
+tcs2infogain_scores
+create_classifier
+classify
+
+They need to be called in the above order, but can also run independently if the previous function has been called before (since each function just creates certain files for the next ones). So for example, for a specific domain, you need to run tf2svm_format only once.
+
+There is a simple test function inside the code.
+I also added an option for an annotation input in "classify", but couldn't test it (classifying all terms works fine).
+
+The code is in:
+/home/j/llc/gititkeh/malletex
+
+There is another file for the mallet calls - mallet_scripts.py.
+Now you can run it from anywhere (and not just from the mallet/bin directory).
+
+---
+Create svm vectors for the tf files
+
+cd /home/j/llc/gititkeh/mallet-2.0.7/bin
+python2.7
+> import pa_runs
+
+> pa_runs.run_tf2svm("computers_abs", "i_computers_abs.attrs.k2.f10.unigram.mtf.inst_all")   
+> pa_runs.run_tf2svm("computers_abs", "i_computers_abs.cand_bigrams.bigram.mtf.inst_all") 
+Output is in /home/j/anick/patent-classifier/ontology/roles/data/patents/computers_abs/data/tv
+
+
+
+
+full index extract of unigrams for computers completed after several days:
+[TFInfo insert_file]Completed decrementation. Total instances: 249, bare_np: 241
+l_must: [['cphr', u'cfg']]
+[TFInfo insert_file]Completed cfg. Total instances: 4675, bare_np: 4501
+[output_cond_prob]Writing to /home/j/anick/patent-classifier/ontology/roles/data/patents/computers/data/tv/i_computers.attrs.k2.f10.unigram.mtf
+[insert_file]Output written to /home/j/anick/patent-classifier/ontology/roles/data/patents/computers/data/tv/i_computers.attrs.k2.f10.unigram.mtf
+
+
+
+Using infogain features with polar_feats thresholds:
+>>> conno.infogain2polarity("i_bio_abs", "i.0.9.5") 
+
+cat i_bio_abs.attrs.k2.f10.unigram.mtf.i.0.9.5.infogain_polar | fgt 6 10 | fgt 12 .75 | fgt 16 1 | cut -f2 | grep -v _for | wc -l 
+95
+cat i_bio_abs.attrs.k2.f10.unigram.mtf.i.0.9.5.infogain_polar | fgt 6 10 | fgt 12 .75 | fgt 16 1 | cut -f2 | wc -l
+100
+
+cat i_bio_abs.attrs.k2.f10.unigram.mtf.i.0.9.5.infogain_polar | fgt 5 10 | fgt 11 .75 | fgt 16 1 | cut -f2 | grep -v _for | wc -l
+60
+cat i_bio_abs.attrs.k2.f10.unigram.mtf.i.0.9.5.infogain_polar | fgt 5 10 | fgt 11 .75 | fgt 16 1 | cut -f2 | wc -l
+131
+
+I packaged these commands into a script to create a list of top labeled features to use as a new seed set
+starting from e.g. a small seedset like u or p.  The name is seed.pn.en.ue10 (u extended with max 10 pos/neg feats)
+Seed set goes in the code directory.  
+sh expand_seedset.sh i_bio_abs health_bio_abs p 10
+sh expand_seedset.sh i_bio_abs health_bio_abs u 10
+
+Make a tcs file using the seed set
+
+unigrams
+>>> run_pr.run_make_tcs("health_bio_abs",.8, 2, "i_bio_abs.attrs.k2.f10.unigram.mtf","pe10")
+>>> run_pr.run_make_tcs("health_bio_abs",.8, 2, "i_bio_abs.attrs.k2.f10.unigram.mtf","ue10")
+
+>>> run_pr.run_make_tcs("health_bio_abs",.9, 5, "i_bio_abs.attrs.k2.f10.unigram.mtf","pe10")
+>>> run_pr.run_make_tcs("health_bio_abs",.9, 5, "i_bio_abs.attrs.k2.f10.unigram.mtf","ue10")
+
+bigrams
+>>> run_pr.run_make_tcs("health_bio_abs",.8, 2, "i_bio_abs.cand_bigrams.bigram.mtf","pe10")
+>>> run_pr.run_make_tcs("health_bio_abs",.8, 2, "i_bio_abs.cand_bigrams.bigram.mtf","ue10")
+
+>>> run_pr.run_make_tcs("health_bio_abs",.9, 5, "i_bio_abs.cand_bigrams.bigram.mtf","pe10")
+>>> run_pr.run_make_tcs("health_bio_abs",.9, 5, "i_bio_abs.cand_bigrams.bigram.mtf","ue10")
+
+run_vectors.run_abs_tcs2infogain_scores_ngrams("i_bio_abs", "health_bio_abs", "ue10.0.9.5") 
+This creates .term_train_input_svm
+
+NOTE: we should also create features including _for (removed in sh script)
+
+conno.run_polar_feats("i_bio_abs", "health_bio_abs", "ue10.0.9.5")    
+
+
+I haven't done mallet yet...
+run_mallet_with_f_list.py tcs2infogain_scores_f(tcs_file, dir_path, file_name_prefix, f_list_file)
+
+Instead, I created an svm_format file for the dja health annotated data
+>>> run_vectors.run_tcs2infogain_scores("dja.uni.tcs", "health_bio_abs", "i_bio_abs.attrs.k2.f10.unigram.mtf.inst_all")  
+>>> run_vectors.run_tcs2infogain_scores("dja.bi.tcs", "health_bio_abs", "i_bio_abs.cand_bigrams.bigram.mtf.inst_all")  
+
+The we need to select features given the infogain_polar info
+>>> conno.select_infogain_features("i_bio_abs", "health_bio_abs", 1, "i.0.9.5", 10, .8, 1)   
+# create the infogain_polar file for bigrams (ngram = 2)
+>>> conno.infogain2polarity("i_bio_abs", "health_bio_abs", "i.0.9.5", 2)  
+>>> conno.select_infogain_features("i_bio_abs", "health_bio_abs", 2, "i.0.9.5", 10, .8, 2)     
+
+For evaluation, include a feature black list to see how robust the remaining features are.
+
+
+##########
+We found that we can't really train on bigrams data, since frequency of association is so much lower for bigrams, we will combine 
+the unigram and bigram data into a single file and build a combined training set.
+
+# in /home/j/anick/patent-classifier/ontology/roles/data/patents/health_bio_abs/data/tv
+cat i_bio_abs.attrs.k2.f10.unigram.mtf i_bio_abs.cand_bigrams.bigram.mtf > i_bio_abs.all.mtf
+
+>>> run_polar.run_steps("i_bio_abs", "health_bio_abs", .8, 5, [1,2,3,4], ["all"]) 
+
+cat i_bio_abs.attrs.k2.f10.unigram.mtf.inst_all i_bio_abs.cand_bigrams.bigram.mtf.inst_all > i_bio_abs.all.mtf.inst_all
+
+To do eval using dja annotations, we combine the uni and bi annotations into a single all file:
+> cat dja.uni.tcs dja.bi.tcs > dja.all.tcs 
+
+Note that .tcs here is simply the term and label, since that is all that is needed to create the svm_vector format
+
+>>> run_vectors.run_tcs2infogain_scores("dja.all.tcs", "health_bio_abs", "i_bio_abs.all.mtf.inst_all")
+
+For ease of handling file names in run_polar.py, I copied our seed files into single character names:
+[anick@sarpedon roles]$ cp seed.pn.en.feng.dat seed.pn.en.f   (feng)
+[anick@sarpedon roles]$ cp seed.pn.en.canon.dat seed.pn.en.i  (initial)
+[anick@sarpedon roles]$ cp seed.pn.en.increase.dat seed.pn.en.u  (increase=up)
+[anick@sarpedon roles]$ cp seed.pn.en.promote.dat seed.pn.en.p  (promote=p)
+[anick@sarpedon roles]$ cp seed.pn.en.ue10.dat seed.pn.en.ue10  (extended with top 10 pos and 20 feats by infogain)
+[anick@sarpedon roles]$ cp seed.pn.en.pe10.dat seed.pn.en.pe10
+[anick@sarpedon roles]$ cp seed.pn.en.ue20.dat seed.pn.en.ue20
+[anick@sarpedon roles]$ cp seed.pn.en.pe20.dat seed.pn.en.pe20
+
+Sorting by freq or infogain total:
+cat all.all.mtf.i.0.9.20.10_0.8_1.rt0.8.ux.eval | cut -f1,7,10,11,12 | sortnr -k5 | grep '^[a-z]*_' | grep ' p' | more
+
+errors: patient, risk
+
+Compare features for health and cosi (top 100 by infogain, with and without _for)
+[anick@sarpedon inst_all]$ cat i_computers_abs.all.mtf.i.0.9.20.10_0.8_1.ffeats | sortnr -k6 | head -100 > i_computers_abs.all.mtf.i.0.9.20.10_0.8_1.ffeats.k6.h100
+[anick@sarpedon inst_all]$ cat i_computers_abs.all.mtf.i.0.9.20.10_0.8_1.ffeats | sortnr -k6 | grep -v _for | head -100 > i_computers_abs.all.mtf.i.0.9.20.10_0.8_1.ffeats.k6.h100.no_for
+
+Copied Wiebe's +-effect terms and converted them to p/n format
+new-host-2:Downloads panick$ scp goldStandard.tff anick@sarpedon.cs.brandeis.edu:downloads
+
+[anick@sarpedon roles]$ cat effect_terms_goldStandard.tff | cut -f2,3 | grep -v Null | sed -e 's/-Effect/n/' | sed -e 's/+Effect/p/' > effect_terms.pn
+
+I manually edited the features to be infinitive forms:
+i_bio_abs.all.mtf.i.0.9.20.10_0.8_1.ffeats.manual
+
+To compare to effect_lexicon
+
+Given that the fully instantiated proposition is positive, then slot filler we assign should match the polarity of 
+the +/- effect predicate.  That is, we would expect a positive predicate to appear with a positive theme, and a negative predicate
+to appear with a negative theme.
+
+Total # features in bio, cs
+[anick@sarpedon inst_all]$ cat i_bio_abs.all.mtf.i.0.9.20.10_0.8_1.ffeats | wc -l
+115
+[anick@sarpedon inst_all]$ cat i_computers_abs.all.mtf.i.0.9.20.10_0.8_1.ffeats | wc -l
+125
+
+[anick@sarpedon inst_all]$ cat i_bio_abs.all.mtf.i.0.9.20.10_0.8_1.effect | grep 's$' | more
+allow_for       p       p       s
+avoid   n       n       s
+correct n       n       s
+improve p       p       s
+reverse n       n       s
+assure  p       p       s
+suppress        n       n       s
+diminish        n       n       s
+promote p       p       s
+lessen  n       n       s
+aid     p       p       s
+permit  p       p       s
+lower   n       n       s
+minimize        n       n       s
+[anick@sarpedon inst_all]$ cat i_bio_abs.all.mtf.i.0.9.20.10_0.8_1.effect | grep 'd$' | more
+relieve n       p       d
+prolong p       x       d
+overcome        n       p       d
+manage  n       x       d
+ameliorate      n       p       d
+develop n       x       d
+confer  p       x       d
+ensure  p       x       d
+stimulate       p       x       d
+treat   n       p       d
+experience      n       x       d
+alleviate       n       p       d
+[anick@sarpedon inst_all]$ cat i_bio_abs.all.mtf.i.0.9.20.10_0.8_1.effect | grep 'd$' | grep -v x | more
+relieve n       p       d
+overcome        n       p       d
+ameliorate      n       p       d
+treat   n       p       d
+alleviate       n       p       d
+[anick@sarpedon inst_all]$ cat i_bio_abs.all.mtf.i.0.9.20.10_0.8_1.effect | grep 's$' | wc -l
+14
+[anick@sarpedon inst_all]$ cat i_bio_abs.all.mtf.i.0.9.20.10_0.8_1.effect | wc -l
+111  total number of features
+
+---------
+comparing bio and cs feats
+[anick@sarpedon inst_all]$ cat i_bio_abs.all.mtf.i.0.9.20.10_0.8_1.compare_computers_abs | egrep 'x$' | wc -l
+69
+[anick@sarpedon inst_all]$ cat i_bio_abs.all.mtf.i.0.9.20.10_0.8_1.compare_computers_abs | egrep '      x       ' | wc -l
+79
+[anick@sarpedon inst_all]$ cat i_bio_abs.all.mtf.i.0.9.20.10_0.8_1.compare_computers_abs | egrep '      n       n' | wc -l
+36
+[anick@sarpedon inst_all]$ cat i_bio_abs.all.mtf.i.0.9.20.10_0.8_1.compare_computers_abs | egrep '      n       p' | wc -l
+0
+[anick@sarpedon inst_all]$ cat i_bio_abs.all.mtf.i.0.9.20.10_0.8_1.compare_computers_abs | egrep '      p       n' | wc -l
+0
+[anick@sarpedon inst_all]$ cat i_bio_abs.all.mtf.i.0.9.20.10_0.8_1.compare_computers_abs | egrep '      p       p' | wc -l
+56
+[anick@sarpedon inst_all]$ cat i_bio_abs.all.mtf.i.0.9.20.10_0.8_1.compare_computers_abs | cut -f2 | grep -v x | wc -l
+161 total bio  not consistant!
+[anick@sarpedon inst_all]$ cat i_bio_abs.all.mtf.i.0.9.20.10_0.8_1.compare_computers_abs | cut -f3 | grep -v x | wc -l
+171 total cs
+[anick@sarpedon inst_all]$ cat i_bio_abs.all.mtf.i.0.9.20.10_0.8_1.compare_computers_abs | grep '       x' | wc -l
+148
+[anick@sarpedon inst_all]$ cat i_bio_abs.all.mtf.i.0.9.20.10_0.8_1.compare_computers_abs | grep '       x' | grep _for | wc -l
+55
+[anick@sarpedon inst_all]$ cat i_bio_abs.all.mtf.i.0.9.20.10_0.8_1.compare_computers_abs | grep '       x' | grep -v _for | wc -l
+93
+
