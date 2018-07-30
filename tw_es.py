@@ -3,11 +3,14 @@
 """
 tw_es.py 
 
+Before using this module, please set the parameter in the line below identified as
+### !!! APPLICATION DEPENDENT LINE
+
 # example calls
 # python2.7 tw_es.py "/home/j/anick/tw/roles/data/corpora" "uspto_mini" "tas" "2018" "uspto_mini"
 # python2.7 tw_es.py "/home/j/anick/tw/roles/data/corpora" "sp3" "ta" "9999" "test1_index"
 
-Define an elasticsearch mapping and load the index for a database, which will be used for
+tw_es.py: Define an elasticsearch mapping and load the index for a database, which will be used for
 finding related terms using elasticsearch in tw_query.py.  If the named index already exists,
 it will be overwritten.
 
@@ -61,7 +64,7 @@ from elasticsearch_dsl.query import MultiMatch, Match
 # It is used in the meta class within DocType class definition.
 # 
 ### e.g., 
-ES_INDEX_NAME = 'test1_index'
+###ES_INDEX_NAME = 'test1_index'
 ###ES_INDEX_NAME = 'uspto_mini'
 
 
@@ -86,7 +89,7 @@ class DocTerms(DocType):
     # --- Add more fields here ---
     
     class Meta:
-
+        ### !!! APPLICATION DEPENDENT LINE
         ### !!! This line defines which index you will be using to create your index
         ### It is also used by tw_query.py (called from the flask app tw_app.py) to 
         ### determine which index to query against.  So set this line to the correct

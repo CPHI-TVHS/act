@@ -1,7 +1,12 @@
 # -*- coding: utf-8 -*-
 
 """
-tw_es.py Finding related terms using elasticsearch
+tw_query.py
+
+Before using this module, please set the parameter in the line below identified as
+### !!! APPLICATION DEPENDENT LINE
+
+tw_query.py: Finding related terms using elasticsearch
 DocTerms is a document made up of the first 500 terms found in a document, with fields for (1) all terms
 (including duplicates) in the form of a single text blob, and 
 (2) a set of terms (without duplicates) as an 
@@ -270,6 +275,12 @@ def fquery(query):
 # documents matching a query.
 # We will read in doc freq, act category, and corpus size (# docs)
 
+
+### !!! APPLICATION DEPENDENT LINE
+### !!! The following line should be modified with the corpus name, sections parameter, and year
+### corresponding to the corpus for which the index was built.  This dependency will eventually
+### be removed, once we replace the python dictionary with a stable storage alternative.
 d_ti = run_make_term_dict("sp3", "ta", "9999")
+
 CORPUS_SIZE = d_ti["|corpus_size|"].df
 print "corpus size: %i" % CORPUS_SIZE
