@@ -221,9 +221,11 @@ illegal_words = set([u'\u2212', u'\u2032', u'\u2550', "âˆ’", "-", "'s", "'", "â€
 
 max_legal_word_len = 30
 def illegal_word_len_p(phr, max_len=max_legal_word_len):
-
+    min_len = 2
     for word in phr.split(" "):
         if len(word) > max_len:
+            return(True)
+        elif len(word) < min_len:
             return(True)
     return(False)
 

@@ -1,9 +1,3 @@
-# sh run_act.sh uspto/2018/ipa180104/data/d3_feats/01/files/0001 sp2 tas 9999 9999 100
-# sh run_act.sh uspto/2018/ipa180104/data/d3_feats/01/files/0001 u1 tas 9999 9999 100
-# nohup sh run_act.sh uspto/2018/ipa180104/data/d3_feats/01/files uspto_2018 tas 9999 9999 500 &
-# nohup sh run_act.sh uspto/2018/ipa180104 uspto_2018_full tas 0 0 500 &
-# nohup sh run_act.sh uspto/2018/ipa180104 uspto_2018_ipa180104 tas 2018 2018 500 &
-# nohup sh run_act.sh uspto/2018 uspto_2018_full tas 2018 2018 500 &
 # nohup sh run_act.sh SignalProcessing sp3 ta 9999 9999 500 &
 
 
