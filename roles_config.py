@@ -10,3 +10,7 @@ CODE_ROOT: Home of all ACT code except Mallet code (location specified in mallet
 CORPUS_ROOT = "/home/j/anick/tw/roles/data/corpora" 
 CODE_ROOT = "/home/j/anick/tw/roles/code"
 TW_CORPUS_ROOT="/home/j/corpuswork/techwatch/corpora"
+
+# mallet parameters used in constructing file names
+CLASSIFIER_TYPE="NB"
+CONTEXT_TYPE="wos"

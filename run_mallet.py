@@ -156,7 +156,7 @@ def create_vectors(dir_path, file_name_prefix, num_infogain_features):
     print("\n[run_mallet.py]starting run_mallet.create_vectors\ndir_path: %s, file_name_prefix: %s, num_infogain_features: %i" % (dir_path, file_name_prefix, num_infogain_features))
     import_svmlight_call = os.system(MALLET + " import-svmlight --input " + dir_path + file_name_prefix + ".train_input_svm --output " + dir_path + file_name_prefix + ".train.vectors")
     if import_svmlight_call != 0:
-        print "[run_mallet.py]Could not create vectors file in directory."
+        print "[run_mallet.py]Could not create vectors file in directory. /nProbably due to a formatting error in the train.vectors file, such a a blank appearing within a feature.  Run run_mallet.create_vectors directly in python to generate a diagnostic error message."
         exit()
     #Create a pruned vectors file when using infogain
     if num_infogain_features != 0:

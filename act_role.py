@@ -2,6 +2,7 @@
 # act_role.py (modified version of role.py to work with new directory structure)
 # role.py
 # rewrite of term_verb_count focusing on role detection rather than mutual information
+# !! Some of this code is no longer used and may be obsolete.  
 
 # directory structure
 # /home/j/anick/patent-classifier/ontology/creation/data/patents/ln-us-14-health/data/tv/act
@@ -130,7 +131,7 @@ import act_pnames
 import pickle
 import roles_config
 import act_prepare_mallet
-import tf
+#import tf
 
 # move corpus_root and code_root to a configuration parameter
 

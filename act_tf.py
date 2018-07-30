@@ -34,6 +34,13 @@ for probabilities to be consistent.  For now, we will only canonicalize the term
 The porter stemmer in nltk (called by canon) may generate unicode errors.  These can be ignored.  When this 
 occurs, we don't apply stemming to the feature.
 
+6/26/18 fixed a bug causing errors in mallet.  Canonicalization of some hyphenated feature
+values resulted in a blank replacing a hyphen.  This turned up later as an erro in the 
+mallet svm formatting, which uses blanks as separators.  Thus, we no longer try to 
+canonicalize hyphenated terms.
+
+Also added canon.illegal_phrase_p filter to the doc_terms file output to eliminate noise terms.
+Made minimum character length in a term = 2.
 """
 
 import pdb
@@ -58,7 +65,7 @@ sys.setdefaultencoding('utf8')
 # list of noise terms to omit from doc_terms_file
 # The word "end" is a marker inserted in documents by our preprocessing.
 # "claim" is a noise word in patents.
-DOC_TERMS_NOISE = ["end", "fig", "figure", "claim"]
+DOC_TERMS_NOISE = ["end", "fig", "figure", "claim", "pat", "no.", "u.s. pat"]
 
 # canonicalizer object
 can = canon.Canon()
@@ -170,6 +177,12 @@ def dir2features_count(filelist_file, out_root, sections, year, overwrite_p,  ma
                 if (filter_noise_p and canon.illegal_phrase_p(term)):
                     pass
 
+                # eliminate lines that come from claims section of patents.
+                # These are not very useful and skew term frequency counts.
+                # We do this by eliminating lines containing the feature section_loc=CLAIM*.
+                if ("=CLAIM" in term_line):
+                    pass
+
                 # NOTE: At the moment we don't test which sections of the doc should be included
                 # as specified by the sections parameter (ta or tas).  We include every line.  If
                 # we decide to add this functionality, this would be the place to add the filter.
@@ -196,7 +209,7 @@ def dir2features_count(filelist_file, out_root, sections, year, overwrite_p,  ma
                     # the number of lines so far.
                                 
                     #pdb.set_trace()
-                    if (i <= max_doc_terms_count) and (term not in DOC_TERMS_NOISE):
+                    if (i <= max_doc_terms_count) and (term not in DOC_TERMS_NOISE) and not canon.illegal_phrase_p(term):
                         doc_terms_list.append(term)
 
                     # fields 3 and beyond are feature-value pairs
@@ -210,10 +223,16 @@ def dir2features_count(filelist_file, out_root, sections, year, overwrite_p,  ma
                         # term-feature instance.
                         if (feature[0:6] in ["prev_V", "prev_J", "prev_N", "last_w"]) and not canon.illegal_feature_p(feature):
 
-                            if canonicalize_p:
-                                # Do canonicalization of feature before incrementing counts
-                                feature = can.get_canon_feature(feature)
+                            if canonicalize_p and not "-" in feature:
+                                # Do canonicalization of feature before incrementing counts.
+                                # NOTE: There is a bug in the canonicalization code when the
+                                # term contains hyphens. For example: 
+                                # >>> can.get_canon_feature("last_word=compass-on-a-chip")
+                                # Returns a term with a blank in it: 'last_word=compas-on-a chip'
+                                # for this reason, we will not try to canonicalize terms containing
+                                # a hyphen.  
 
+                                feature = can.get_canon_feature(feature)
 
                             # increment global corpus count for the feature
                             d_feat2cfreq[feature] += 1
@@ -318,7 +337,9 @@ def dir2features_count(filelist_file, out_root, sections, year, overwrite_p,  ma
 
         s_canon_file = codecs.open(canon_file, "w", encoding='utf-8')
         for key,value in can.d_n2canon.items():
-            s_canon_file.write("%s\t%s\n" % (key, value))
+            # Only write out a line if the canonical form differs from the surface form
+            if key != value:
+                s_canon_file.write("%s\t%s\n" % (key, value))
         s_canon_file.close()
 
         s_tf_file.close()
