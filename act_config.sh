@@ -1,9 +1,10 @@
+#!/usr/bin/env bash
 # act_config.sh
 
 # These variables should match the values set in roles_config.py
-TW_CORPUS_ROOT="/home/j/corpuswork/techwatch/corpora"
-LOCAL_CORPUS_ROOT="/home/j/anick/tw/roles/data/corpora"
-CODEDIR="/home/j/anick/tw/roles/code"
+TW_CORPUS_ROOT="U:\Workspaces\techknowledgist\thyme\output"
+LOCAL_CORPUS_ROOT="U:\Workspaces\techknowledgist\thyme\output"
+CODEDIR="X:\tools\Techknowledgist\act.git"
 
 echo "[act_config.sh]TW_CORPUS_ROOT: $TW_CORPUS_ROOT, LOCAL_CORPUS_ROOT: $LOCAL_CORPUS_ROOT"
 
@@ -15,7 +16,8 @@ echo "[act_config.sh]TW_CORPUS_ROOT: $TW_CORPUS_ROOT, LOCAL_CORPUS_ROOT: $LOCAL_
 
 # scripts will invoke python v2.7 using the alias python2.7.  Set this alias to
 # your local python 2.7 executable
-alias python2.7='/usr/local/bin/python2.7'
+
+alias python2.7='C:\Python27\python.exe'
 
 # scripts utilize this pipe sequence to output count of unique lines in a file,
 # sorted by count, and formatted as <count>\t<line>

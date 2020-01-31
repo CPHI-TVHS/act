@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # nohup sh run_act.sh SignalProcessing sp3 ta 9999 9999 500 &
 
 
